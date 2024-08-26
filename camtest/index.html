@@ -1,0 +1,198 @@
+<DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Renderer with Camera and Lighting</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: auto;
+        }
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas" width="800" height="600"></canvas>
+    <input type="file" id="fileInput" accept=".obj" style="position: fixed; top: 10px; left: 10px;" />
+
+    <script>
+    const canvas = document.getElementById('renderCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let camera = { x: 0, y: 0, z: -5, pitch: 0, yaw: 0 };
+
+    let lightPosition = { x: 0, y: 5, z: -5 };
+
+    let vertices = [];
+    let faces = [];
+
+    const fileInput = document.getElementById('fileInput');
+    fileInput.addEventListener('change', handleFileUpload);
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        const reader = new FileReader();
+        reader.onload = () => parseObjFile(reader.result);
+        reader.readAsText(file);
+    }
+
+    function parseObjFile(data) {
+        vertices = [];
+        faces = [];
+        const lines = data.split('\n');
+        lines.forEach(line => {
+            const parts = line.trim().split(' ');
+            if (parts[0] === 'v') {
+                vertices.push({
+                    x: parseFloat(parts[1]),
+                    y: parseFloat(parts[2]),
+                    z: parseFloat(parts[3])
+                });
+            } else if (parts[0] === 'f') {
+                const face = parts.slice(1).map(part => parseInt(part.split('/')[0]) - 1);
+                faces.push(face);
+            }
+        });
+        render();
+    }
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        faces.forEach(face => {
+            const p1 = transformAndProject(vertices[face[0]]);
+            const p2 = transformAndProject(vertices[face[1]]);
+            const p3 = transformAndProject(vertices[face[2]]);
+
+            const normal = calculateNormal(vertices[face[0]], vertices[face[1]], vertices[face[2]]);
+            
+            const lightDirection = normalize({
+                x: lightPosition.x - camera.x,
+                y: lightPosition.y - camera.y,
+                z: lightPosition.z - camera.z
+            });
+            const intensity = Math.max(0, dotProduct(normal, lightDirection)) * 0.8 + 0.2; 
+            
+            const color = `rgb(${Math.floor(255 * intensity)}, ${Math.floor(255 * intensity)}, ${Math.floor(255 * intensity)})`;
+
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        });
+    }
+
+    function transformAndProject(point) {
+        let rotated = rotatePoint(point, camera.pitch, camera.yaw);
+
+        rotated = {
+            x: rotated.x - camera.x,
+            y: rotated.y - camera.y,
+            z: rotated.z - camera.z
+        };
+
+        const scale = 400 / rotated.z;
+        return {
+            x: canvas.width / 2 + rotated.x * scale,
+            y: canvas.height / 2 - rotated.y * scale
+        };
+    }
+
+    function rotatePoint(point, pitch, yaw) {
+        const cosPitch = Math.cos(pitch);
+        const sinPitch = Math.sin(pitch);
+        const cosYaw = Math.cos(yaw);
+        const sinYaw = Math.sin(yaw);
+
+        let x = cosYaw * point.x - sinYaw * point.z;
+        let z = sinYaw * point.x + cosYaw * point.z;
+        let y = point.y;
+        
+        let newY = cosPitch * y - sinPitch * z;
+        let newZ = sinPitch * y + cosPitch * z;
+
+        return { x, y: newY, z: newZ };
+    }
+
+    function calculateNormal(p1, p2, p3) {
+        const u = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z };
+        const v = { x: p3.x - p1.x, y: p3.y - p1.y, z: p3.z - p1.z };
+        
+        return normalize({
+            x: u.y * v.z - u.z * v.y,
+            y: u.z * v.x - u.x * v.z,
+            z: u.x * v.y - u.y * v.x
+        });
+    }
+
+    function normalize(v) {
+        const length = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        return { x: v.x / length, y: v.y / length, z: v.z / length };
+    }
+
+    function dotProduct(v1, v2) {
+        return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    }
+
+    let keys = {};
+    document.addEventListener('keydown', (e) => {
+        keys[e.key] = true;
+    });
+    document.addEventListener('keyup', (e) => {
+        keys[e.key] = false;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        const sensitivity = 0.002;
+        camera.yaw += e.movementX * sensitivity;
+        camera.pitch -= e.movementY * sensitivity;
+        render();
+    });
+
+    function moveCamera() {
+        const speed = 0.1;
+        const forward = {
+            x: Math.sin(camera.yaw),
+            y: 0,
+            z: Math.cos(camera.yaw)
+        };
+        const right = {
+            x: Math.cos(camera.yaw),
+            y: 0,
+            z: -Math.sin(camera.yaw)
+        };
+        
+        if (keys['w']) {
+            camera.x += forward.x * speed;
+            camera.z += forward.z * speed;
+        }
+        if (keys['s']) {
+            camera.x -= forward.x * speed;
+            camera.z -= forward.z * speed;
+        }
+        if (keys['a']) {
+            camera.x += right.x * speed;
+            camera.z += right.z * speed;
+        }
+        if (keys['d']) {
+            camera.x -= right.x * speed;
+            camera.z -= right.z * speed;
+        }
+        if (keys[' ']) camera.y += speed;
+        if (keys['Shift']) camera.y -= speed;
+        render();
+        requestAnimationFrame(moveCamera);
+    }
+
+    moveCamera();
+    </script>
+</body>
+</html>
